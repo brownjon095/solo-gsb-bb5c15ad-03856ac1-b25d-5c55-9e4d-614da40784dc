@@ -15,6 +15,8 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 RUN mkdir -p /data
 VOLUME ["/data"]
@@ -26,4 +28,7 @@ HEALTHCHECK --interval=15s --timeout=3s --retries=5 \
 r=urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3); \
 assert json.load(r)['status']=='ok'" || exit 1
 
+# Dependencies are installed in the image above; the entrypoint initializes
+# (creates/migrates/seeds) the database once on startup, then launches the API.
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

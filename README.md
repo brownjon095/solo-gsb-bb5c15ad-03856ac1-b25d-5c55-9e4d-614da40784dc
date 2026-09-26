@@ -45,9 +45,11 @@
 
 ## 快速开始
 
-### 方式一：Docker Compose（推荐）
+### 一条命令启动（Docker Compose，推荐）
 
-单条命令即可构建镜像并在后台启动服务：
+无需手动装依赖、建库或灌数据：依赖在镜像构建时安装，容器启动时**自动
+建表、执行迁移并灌入 30 道演示题**（幂等，重复启动不重复生成）。单条命令
+完成构建并在后台启动：
 
 ```bash
 docker compose up -d --build
@@ -59,15 +61,30 @@ docker compose up -d --build
 docker compose up --build
 ```
 
-启动后 Compose 把容器内 API 的 **8000** 端口映射到主机 **8000** 端口
-（`ports: "8000:8000"`，冒号左侧为主机端口，需要更换时只改左侧即可）：
+#### 访问地址（主机 **8000** 端口）
+
+Compose 把容器内 API 的 **8000** 端口映射到主机 **8000** 端口
+（`ports: "8000:8000"`）：
 
 - API 根地址： http://localhost:8000
 - 交互式文档（Swagger UI）： http://localhost:8000/docs
 - 健康检查： http://localhost:8000/health
-- SQLite 数据持久化在命名卷 `quiz-data`（容器内 `/data/quiz.db`）
 
-### 方式二：本地直接运行
+容器启动流程为 `docker-entrypoint.sh`：先执行 `init_db()`（建表/迁移/
+灌入演示题），再启动 uvicorn；需要更换主机端口时只改 compose 端口映射的
+左侧即可。
+
+#### 必要配置（均有默认值，可不改）
+
+| 配置 | 位置 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `QUIZ_DB_PATH` | 环境变量（Dockerfile / compose） | 本地 `data/quiz.db`；容器 `/data/quiz.db` | SQLite 数据库路径；容器中位于命名卷 `quiz-data`，数据随容器重启保留 |
+| `DEFAULT_EXPOSURE_LIMIT` | 环境变量（compose） | `5` | 创建会话未显式传 `exposure_limit` 时的默认全局单题曝光上限 |
+| 端口映射 `8000:8000` | `docker-compose.yml` | — | 左侧为主机端口、右侧为容器端口；主机 8000 被占用时改左侧 |
+
+SQLite 数据持久化在命名卷 `quiz-data`（容器内 `/data/quiz.db`）。
+
+### 本地直接运行（可选）
 
 ```bash
 python3 -m venv .venv
@@ -77,7 +94,8 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-首次启动自动建表并灌入 30 道演示题。
+首次启动同样自动建表并灌入 30 道演示题（FastAPI 启动钩子执行
+`init_db()`，幂等）。
 
 ### 一键跑示例
 
@@ -109,8 +127,14 @@ h  = -a²·P·(1-P) = -I(θ)
 θ' = θ - g/h = θ + a(u - P) / I(θ)       # 仅一步
 ```
 
-为数值稳定：分母有 `1e-4` 下限，θ 被截断在 `[-6, 6]`。注意题目要求的是
+为数值稳定：统一按 `z = a(θ-b)` 计算 logit（θ > b 时 `z > 0`、`P > 0.5`），
+`z` 截断在 `[-60, 60]`；互补概率 `Q = 1-P` 由小指数分支直接算
+（`z<0` 用 `P=e^z/(1+e^z)`，`z≥0` 用 `Q=e^{-z}/(1+e^{-z})`），而不是
+`1-P`——因此即使远尾 `P` 被舍入为 `1.0`，`Q` 仍为严格正的浮点数，
+`a²PQ` 不会归零；合法参数下 `z=±60` 信息量为正且两侧严格对称。
+Newton 分母保留 `1e-4` 下限，θ 被截断在 `[-6, 6]`。注意题目要求的是
 **一次** Newton 更新（非迭代至收敛），实现见 `app/irt.py: newton_step`。
+历史作答保存的 `p_correct` / `information_at_theta` 不随内核修正重算。
 
 ### 选题规则（`POST /api/sessions/{id}/next`）
 
